@@ -1,0 +1,14 @@
+fastapi
+uvicorn
+groq
+pydantic
+python-dotenv
+supabase
+requests
+google-api-python-client
+google-auth
+litellm
+langgraph
+langchain-core
+chromadb
+# We will add ChromaDB, LangGraph, and Google API clients here later.

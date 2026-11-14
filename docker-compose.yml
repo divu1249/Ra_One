@@ -1,0 +1,17 @@
+
+
+services:
+  ra_one_matrix:
+    build: 
+      context: ./ra_one_core
+    container_name: ra_one_containment_grid
+    ports:
+      - "8000:8000"
+    volumes:
+      # This binds your local folder to the container. 
+      # Ra.One can edit files, but ONLY inside this specific folder.
+      - ./ra_one_core:/app 
+    environment:
+      # We will map your secure keys here so they don't get pushed to GitHub
+      - GROQ_API_KEY=${GROQ_API_KEY}
+    restart: unless-stopped
