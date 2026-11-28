@@ -1,0 +1,27 @@
+{
+  "name": "ra_one",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "workspaces": [
+    "ra_one_terminal"
+  ],
+  "scripts": {
+    "dev": "tsx server.ts",
+    "build": "npm run build --workspace=ra_one_terminal",
+    "lint": "npm run lint --workspace=ra_one_terminal",
+    "start": "NODE_ENV=production node server.ts"
+  },
+  "dependencies": {
+    "@google/genai": "^3.6.1",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "groq-sdk": "^0.19.0"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.21",
+    "@types/node": "^22.10.0",
+    "tsx": "^4.19.3",
+    "vite": "^8.3.0"
+  }
+}

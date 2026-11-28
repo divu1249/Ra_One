@@ -1,17 +1,27 @@
-
-
 services:
   ra_one_matrix:
-    build: 
+    build:
       context: ./ra_one_core
     container_name: ra_one_containment_grid
     ports:
       - "8000:8000"
     volumes:
-      # This binds your local folder to the container. 
-      # Ra.One can edit files, but ONLY inside this specific folder.
-      - ./ra_one_core:/app 
+      - ./ra_one_core:/app
     environment:
-      # We will map your secure keys here so they don't get pushed to GitHub
-      - GROQ_API_KEY=${GROQ_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - GOOGLE_API_KEY=${GOOGLE_API_KEY:-}
+      - API_KEY=${API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - DEEPSEEK_API_KEY=${DEEPSEEK_API_KEY:-}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - LOCAL_LLM_URL=${LOCAL_LLM_URL:-}
+      - SUPABASE_URL=${SUPABASE_URL:-}
+      - SUPABASE_KEY=${SUPABASE_KEY:-}
+      - MAX_ITERATIONS=${MAX_ITERATIONS:-5}
+      - SANDBOX_TIMEOUT_SECONDS=${SANDBOX_TIMEOUT_SECONDS:-10}
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
     restart: unless-stopped

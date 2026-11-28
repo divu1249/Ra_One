@@ -1,0 +1,8 @@
+{
+  "name": "Ra.One Terminal",
+  "description": "Ra.One 2.0 self-healing autonomous multi-agent core with Hydra failover routing, Actor-Critic cognition loop, simulation-based self-mutation, and episodic memory.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

@@ -1,0 +1,1292 @@
+import React, { useEffect, useRef, useState } from "react";
+
+type AgentStage =
+  | "IDLE"
+  | "MEMORY"
+  | "ACTOR"
+  | "SANDBOX"
+  | "CRITIC"
+  | "MUTATE"
+  | "ANSWERING"
+  | "FAULT";
+
+interface TelemetryLine {
+  id: number;
+  tag: string;
+  text: string;
+}
+
+interface VoxelBlock {
+  x: number;
+  y: number;
+  z: number;
+  w: number;
+  h: number;
+  region: "hood" | "face" | "debris";
+  phase: number;
+  speed: number;
+  shade: number;
+  hotspotWeight: number;
+}
+
+const NAV_ITEMS = [
+  "NN MONITOR",
+  "TELEMETRY",
+  "DIAGNOSTICS",
+  "LOGS",
+  "SETTINGS",
+  "SECURITY",
+] as const;
+
+const FLOW_LABELS = ["Cortex", "Memory", "Emotion", "Decision"] as const;
+
+export default function RaOneTerminal() {
+  const [activeNav, setActiveNav] = useState<string>("NN MONITOR");
+  const [stage, setStage] = useState<AgentStage>("ANSWERING");
+  const [directive, setDirective] = useState("");
+  const [isRunning, setIsRunning] = useState(false);
+  const [activityPct, setActivityPct] = useState(97.6);
+  const [latencyMs, setLatencyMs] = useState(1.2);
+  const [provider, setProvider] = useState("HYDRA // TIER 0");
+  const [generatedCode, setGeneratedCode] = useState("");
+  const [showCodeDrawer, setShowCodeDrawer] = useState(false);
+  const [thoughts, setThoughts] = useState<TelemetryLine[]>([
+    { id: 1, tag: "ACTOR", text: "Analyzing context..." },
+    { id: 2, tag: "MEMORY", text: "Evaluating options..." },
+    { id: 3, tag: "SANDBOX", text: "Formulating response..." },
+    { id: 4, tag: "CRITIC", text: "Synthesizing output..." },
+  ]);
+
+  const faceCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const miniCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const waveCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const mouseRef = useRef({ x: 0, y: 0 });
+  const stageRef = useRef<AgentStage>(stage);
+  stageRef.current = stage;
+
+  // Poll /health if backend is mounted
+  useEffect(() => {
+    let alive = true;
+    const poll = async () => {
+      const t0 = performance.now();
+      try {
+        const res = await fetch("/health");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!alive) return;
+        setLatencyMs(Number((performance.now() - t0).toFixed(1)));
+        if (data?.active_provider) setProvider(String(data.active_provider).toUpperCase());
+      } catch {
+        // Offline visual preview mode
+      }
+    };
+    poll();
+    const id = window.setInterval(poll, 12000);
+    return () => {
+      alive = false;
+      window.clearInterval(id);
+    };
+  }, []);
+
+  // Procedural 3D-Projected Hooded Voxel Face Engine (Matches image_a67c69.jpg)
+  useEffect(() => {
+    const canvas = faceCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const blocks: VoxelBlock[] = [];
+
+    // 1. Build outer fractured voxel hood silhouette
+    for (let row = -15; row <= 14; row++) {
+      const ny = row / 15; // -1 top to +1 bottom
+      const halfWidth =
+        ny < -0.55
+          ? 0.28 + (ny + 1) * 0.85
+          : ny < 0.35
+          ? 0.66 + (ny + 0.55) * 0.25
+          : 0.88 + (ny - 0.35) * 0.32;
+
+      for (let col = -13; col <= 13; col++) {
+        const nx = col / 13;
+        const absX = Math.abs(nx);
+
+        // Inner face cavity ellipse
+        const faceDist =
+          (nx * nx) / (0.36 * 0.36) + ((ny + 0.04) * (ny + 0.04)) / (0.52 * 0.52);
+
+        if (absX <= halfWidth && faceDist > 0.86) {
+          // Hood wall + shoulder base
+          const edgeFade = 1 - Math.max(0, (absX - (halfWidth - 0.16)) / 0.18);
+          if (Math.random() > edgeFade * 0.92) continue;
+
+          blocks.push({
+            x: nx * 175,
+            y: ny * 210,
+            z: (1 - absX) * 45 + (Math.random() - 0.5) * 18,
+            w: 11 + Math.random() * 14,
+            h: 11 + Math.random() * 14,
+            region: "hood",
+            phase: Math.random() * Math.PI * 2,
+            speed: 0.5 + Math.random() * 1.1,
+            shade: 16 + Math.random() * 24,
+            hotspotWeight: Math.max(0, 1 - faceDist * 0.65),
+          });
+        }
+      }
+    }
+
+    // 2. Build dense churning inner faceless mask blocks
+    for (let i = 0; i < 420; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const rad = Math.sqrt(Math.random());
+      const nx = Math.cos(angle) * rad * 0.35;
+      const ny = Math.sin(angle) * rad * 0.5 - 0.03;
+
+      // Taper toward chin
+      if (ny > 0.15 && Math.abs(nx) > 0.34 - (ny - 0.15) * 0.48) continue;
+
+      // Carve recessed eye slits so crimson eyes pierce cleanly
+      const leftEye =
+        ((nx + 0.145) * (nx + 0.145)) / (0.068 * 0.068) +
+        ((ny + 0.145) * (ny + 0.145)) / (0.032 * 0.032);
+      const rightEye =
+        ((nx - 0.145) * (nx - 0.145)) / (0.068 * 0.068) +
+        ((ny + 0.145) * (ny + 0.145)) / (0.032 * 0.032);
+      if (leftEye < 1 || rightEye < 1) continue;
+
+      const cheekGlow =
+        Math.exp(-((nx + 0.14) ** 2 + (ny - 0.03) ** 2) / 0.025) +
+        Math.exp(-((nx - 0.12) ** 2 + (ny - 0.22) ** 2) / 0.03);
+
+      blocks.push({
+        x: nx * 175,
+        y: ny * 210,
+        z: 55 + (1 - rad) * 38 + (Math.random() - 0.5) * 20,
+        w: 6 + Math.random() * 11,
+        h: 6 + Math.random() * 11,
+        region: "face",
+        phase: Math.random() * Math.PI * 2,
+        speed: 1.4 + Math.random() * 2.4,
+        shade: 12 + Math.random() * 22,
+        hotspotWeight: Math.min(1, cheekGlow),
+      });
+    }
+
+    // 3. Outer drifting memory fragments
+    for (let i = 0; i < 55; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const r = 165 + Math.random() * 85;
+      blocks.push({
+        x: Math.cos(a) * r,
+        y: Math.sin(a) * r * 1.08,
+        z: (Math.random() - 0.5) * 70,
+        w: 4 + Math.random() * 8,
+        h: 4 + Math.random() * 8,
+        region: "debris",
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.8 + Math.random() * 1.4,
+        shade: 20 + Math.random() * 30,
+        hotspotWeight: Math.random() * 0.5,
+      });
+    }
+
+    let rafId = 0;
+    let t = 0;
+
+    const render = () => {
+      const dpr = Math.min(window.devicePixelRatio || 1, 2);
+      const rect = canvas.getBoundingClientRect();
+      if (canvas.width !== Math.floor(rect.width * dpr) || canvas.height !== Math.floor(rect.height * dpr)) {
+        canvas.width = Math.floor(rect.width * dpr);
+        canvas.height = Math.floor(rect.height * dpr);
+      }
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+      const W = rect.width;
+      const H = rect.height;
+      const cx = W * 0.5;
+      const cy = H * 0.51;
+      const scaleFit = Math.min(W / 440, H / 470);
+
+      const curStage = stageRef.current;
+      const intensity =
+        curStage === "FAULT" || curStage === "CRITIC"
+          ? 2.2
+          : curStage === "ACTOR" || curStage === "MUTATE"
+          ? 1.65
+          : curStage === "SANDBOX"
+          ? 1.35
+          : curStage === "ANSWERING"
+          ? 1.15
+          : 0.65;
+
+      t += 0.018 * intensity;
+
+      ctx.clearRect(0, 0, W, H);
+
+      // Deep crimson core aura behind head
+      const aura = ctx.createRadialGradient(cx, cy, 10, cx, cy, 240 * scaleFit);
+      aura.addColorStop(0, "rgba(255, 22, 38, 0.34)");
+      aura.addColorStop(0.45, "rgba(145, 8, 22, 0.16)");
+      aura.addColorStop(1, "rgba(4, 4, 7, 0)");
+      ctx.fillStyle = aura;
+      ctx.fillRect(0, 0, W, H);
+
+      // Fine red HUD coordinate grid
+      ctx.strokeStyle = "rgba(255, 30, 45, 0.11)";
+      ctx.lineWidth = 0.75;
+      const gridStep = 28 * scaleFit;
+      for (let gx = cx % gridStep; gx < W; gx += gridStep) {
+        ctx.beginPath();
+        ctx.moveTo(gx, 0);
+        ctx.lineTo(gx, H);
+        ctx.stroke();
+      }
+      for (let gy = cy % gridStep; gy < H; gy += gridStep) {
+        ctx.beginPath();
+        ctx.moveTo(0, gy);
+        ctx.lineTo(W, gy);
+        ctx.stroke();
+      }
+
+      // Concentric glowing crimson target rings
+      const rings = [132, 168, 206];
+      rings.forEach((r, idx) => {
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(t * (idx % 2 === 0 ? 0.08 : -0.06));
+        ctx.strokeStyle =
+          idx === 1 ? "rgba(255, 34, 48, 0.38)" : "rgba(255, 34, 48, 0.18)";
+        ctx.lineWidth = idx === 1 ? 1.2 : 0.8;
+        ctx.setLineDash(idx === 2 ? [18, 10, 4, 10] : []);
+        ctx.beginPath();
+        ctx.arc(0, 0, r * scaleFit, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+      });
+
+      // Subtle parallax rotation from cursor
+      const rotY = mouseRef.current.x * 0.14 + Math.sin(t * 0.35) * 0.03;
+      const rotX = -mouseRef.current.y * 0.1 + Math.cos(t * 0.25) * 0.02;
+
+      // Migrating internal crimson energy hotspots (cheek & jaw fissures)
+      const hot1 = {
+        x: -24 + Math.sin(t * 1.1) * 14,
+        y: 12 + Math.cos(t * 0.9) * 16,
+      };
+      const hot2 = {
+        x: 20 + Math.cos(t * 1.3) * 16,
+        y: 44 + Math.sin(t * 1.0) * 18,
+      };
+
+      // Internal glowing magma backing behind face cavity
+      const cavityGrad = ctx.createRadialGradient(
+        cx + hot1.x * scaleFit,
+        cy + hot1.y * scaleFit,
+        4,
+        cx,
+        cy + 10 * scaleFit,
+        92 * scaleFit
+      );
+      cavityGrad.addColorStop(0, `rgba(255, 38, 52, ${0.72 * Math.min(1.2, intensity)})`);
+      cavityGrad.addColorStop(0.55, "rgba(190, 12, 26, 0.45)");
+      cavityGrad.addColorStop(1, "rgba(10, 2, 4, 0)");
+      ctx.fillStyle = cavityGrad;
+      ctx.beginPath();
+      ctx.ellipse(cx, cy - 2 * scaleFit, 62 * scaleFit, 92 * scaleFit, 0, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Project & depth-sort voxels
+      const projected = blocks.map((b) => {
+        const churnAmp =
+          b.region === "face"
+            ? (curStage === "FAULT" ? 26 : 11) * intensity
+            : b.region === "debris"
+            ? 14
+            : 3.5;
+
+        const dz = Math.sin(t * b.speed + b.phase) * churnAmp;
+        const dy =
+          b.region === "face" ? Math.cos(t * b.speed * 0.8 + b.phase) * 2.2 * intensity : 0;
+        const jitterX =
+          curStage === "FAULT" && b.region === "face"
+            ? (Math.random() - 0.5) * 9
+            : 0;
+
+        const x0 = b.x + jitterX;
+        const y0 = b.y + dy;
+        const z0 = b.z + dz;
+
+        // 3D rotation
+        const cosY = Math.cos(rotY);
+        const sinY = Math.sin(rotY);
+        const x1 = x0 * cosY - z0 * sinY;
+        const z1 = z0 * cosY + x0 * sinY;
+
+        const cosX = Math.cos(rotX);
+        const sinX = Math.sin(rotX);
+        const y2 = y0 * cosX - z1 * sinX;
+        const z2 = z1 * cosX + y0 * sinX;
+
+        const persp = 520 / (520 - z2);
+        const sx = cx + x1 * persp * scaleFit;
+        const sy = cy + y2 * persp * scaleFit;
+        const sw = b.w * persp * scaleFit;
+        const sh = b.h * persp * scaleFit;
+
+        const dHot1 = Math.hypot(b.x - hot1.x, b.y - hot1.y);
+        const dHot2 = Math.hypot(b.x - hot2.x, b.y - hot2.y);
+        const heat =
+          Math.max(
+            Math.exp(-(dHot1 * dHot1) / 1400),
+            Math.exp(-(dHot2 * dHot2) / 1600)
+          ) * (b.region === "face" ? 1 : 0.35);
+
+        return { b, sx, sy, sw, sh, z2, dz, heat };
+      });
+
+      projected.sort((a, b) => a.z2 - b.z2);
+
+      for (const p of projected) {
+        const { b, sx, sy, sw, sh, dz, heat } = p;
+        const x = sx - sw * 0.5;
+        const y = sy - sh * 0.5;
+
+        // Glowing crimson fissure halo bleeding between parted blocks
+        if (heat > 0.28 || (b.region === "face" && dz > 6)) {
+          const glowAlpha = Math.min(0.85, heat * 0.85 + Math.max(0, dz / 35));
+          ctx.fillStyle = `rgba(255, 24, 42, ${glowAlpha * 0.55})`;
+          ctx.fillRect(x - 1.5, y - 1.5, sw + 3, sh + 3);
+        }
+
+        // Matte obsidian/gunmetal metallic block face
+        const base = b.shade + Math.max(0, dz * 0.45);
+        const rCol = Math.min(255, base + heat * 95);
+        const gCol = Math.min(255, base + heat * 12);
+        const bCol = Math.min(255, base + 4 + heat * 14);
+
+        ctx.fillStyle = `rgba(${rCol | 0}, ${gCol | 0}, ${bCol | 0}, ${
+          b.region === "debris" ? 0.58 : 0.92
+        })`;
+        ctx.fillRect(x, y, sw, sh);
+
+        // Specular metallic top-left rim + red under-bounce
+        ctx.strokeStyle =
+          heat > 0.42
+            ? `rgba(255, 58, 72, ${0.45 + heat * 0.4})`
+            : "rgba(180, 195, 215, 0.17)";
+        ctx.lineWidth = 0.7;
+        ctx.strokeRect(x, y, sw, sh);
+      }
+
+      // Piercing slanted crimson eyes
+      const drawEye = (side: -1 | 1) => {
+        const ex = cx + (side * 27 + mouseRef.current.x * 8) * scaleFit;
+        const ey = cy + (-33 + mouseRef.current.y * 5) * scaleFit;
+        const eyeGlow = ctx.createRadialGradient(ex, ey, 1, ex, ey, 28 * scaleFit);
+        eyeGlow.addColorStop(0, "rgba(255, 245, 245, 0.98)");
+        eyeGlow.addColorStop(0.22, "rgba(255, 28, 44, 0.95)");
+        eyeGlow.addColorStop(0.55, "rgba(220, 10, 26, 0.42)");
+        eyeGlow.addColorStop(1, "rgba(220, 10, 26, 0)");
+
+        ctx.fillStyle = eyeGlow;
+        ctx.beginPath();
+        ctx.arc(ex, ey, 28 * scaleFit, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Sharp slanted iris slit
+        ctx.save();
+        ctx.translate(ex, ey);
+        ctx.rotate(side * -0.18);
+        ctx.fillStyle = "#fff1f2";
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 9.5 * scaleFit, 2.7 * scaleFit, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      };
+
+      drawEye(-1);
+      drawEye(1);
+
+      // Horizontal HUD scanner flare during SANDBOX / ACTOR
+      if (curStage === "SANDBOX" || curStage === "ACTOR") {
+        const scanY = ((t * 58) % H);
+        const scanGrad = ctx.createLinearGradient(0, scanY - 18, 0, scanY + 18);
+        scanGrad.addColorStop(0, "rgba(255, 30, 45, 0)");
+        scanGrad.addColorStop(0.5, "rgba(255, 42, 58, 0.28)");
+        scanGrad.addColorStop(1, "rgba(255, 30, 45, 0)");
+        ctx.fillStyle = scanGrad;
+        ctx.fillRect(0, scanY - 18, W, 36);
+      }
+
+      // Also paint the mini bottom-right voxel monitor
+      const mini = miniCanvasRef.current;
+      if (mini) {
+        const mctx = mini.getContext("2d");
+        if (mctx) {
+          mctx.clearRect(0, 0, mini.width, mini.height);
+          mctx.drawImage(canvas, 0, 0, mini.width, mini.height);
+        }
+      }
+
+      rafId = requestAnimationFrame(render);
+    };
+
+    rafId = requestAnimationFrame(render);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  // Live Neural Activity EEG Waveform
+  useEffect(() => {
+    const canvas = waveCanvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    let rafId = 0;
+    let phase = 0;
+
+    const draw = () => {
+      const W = canvas.width;
+      const H = canvas.height;
+      const active = stageRef.current !== "IDLE";
+      phase += active ? 0.14 : 0.05;
+
+      ctx.clearRect(0, 0, W, H);
+      ctx.strokeStyle = "#FF2233";
+      ctx.lineWidth = 1.4;
+      ctx.shadowColor = "rgba(255, 30, 45, 0.85)";
+      ctx.shadowBlur = 8;
+
+      ctx.beginPath();
+      for (let x = 0; x < W; x += 2) {
+        const norm = x / W;
+        const envelope = Math.sin(norm * Math.PI);
+        const spike =
+          Math.sin(x * 0.17 + phase) * 0.45 +
+          Math.sin(x * 0.41 - phase * 1.6) * 0.35 +
+          Math.cos(x * 0.83 + phase * 2.1) * 0.2;
+        const amp = (active ? H * 0.42 : H * 0.18) * envelope;
+        const y = H * 0.5 + spike * amp;
+        if (x === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      rafId = requestAnimationFrame(draw);
+    };
+
+    rafId = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(rafId);
+  }, []);
+
+  // Live SSE Directive Execution against FastAPI /chat
+  const runDirective = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!directive.trim() || isRunning) return;
+
+    const prompt = directive.trim();
+    setDirective("");
+    setIsRunning(true);
+    setStage("ACTOR");
+    setActivityPct(98.4);
+    setThoughts([{ id: Date.now(), tag: "DIRECTIVE", text: prompt }]);
+
+    const pushLine = (tag: string, text: string) => {
+      setThoughts((prev) => [...prev.slice(-7), { id: Date.now() + Math.random(), tag, text }]);
+    };
+
+    try {
+      const res = await fetch("/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message: prompt }),
+      });
+
+      if (!res.ok || !res.body) throw new Error(`HTTP ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const chunk of parts) {
+          const line = chunk.trim();
+          if (!line.startsWith("data:")) continue;
+          try {
+            const payload = JSON.parse(line.replace(/^data:\s*/, ""));
+            const type = String(payload.type || "telemetry").toUpperCase();
+            const content = String(payload.content || "");
+
+            if (type === "MEMORY") setStage("MEMORY");
+            else if (type === "ACTOR") setStage("ACTOR");
+            else if (type === "CODE") {
+              setStage("MUTATE");
+              setGeneratedCode(content);
+              setShowCodeDrawer(true);
+            } else if (type === "CRITIC") setStage("CRITIC");
+            else if (type === "ERROR" || type === "FAULT") setStage("FAULT");
+            else if (type === "FINAL" || type === "VERIFIED") setStage("ANSWERING");
+            else if (content.includes("SANDBOX")) setStage("SANDBOX");
+
+            pushLine(type, content.slice(0, 110));
+          } catch {
+            // Skip malformed SSE frame
+          }
+        }
+      }
+      setStage("ANSWERING");
+    } catch (err) {
+      setStage("FAULT");
+      pushLine("FAULT", err instanceof Error ? err.message : "Backend stream unreachable");
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const bannerText =
+    stage === "IDLE"
+      ? "S T A N D B Y . . ."
+      : stage === "FAULT"
+      ? "F A U L T   D E T E C T E D"
+      : stage === "ANSWERING"
+      ? "A N S W E R I N G . . ."
+      : "T H I N K I N G . . .";
+
+  const bannerSub =
+    stage === "FAULT"
+      ? "HYDRA FAILOVER ENGAGED //"
+      : stage === "ANSWERING"
+      ? "NEURAL LINK STABILIZED //"
+      : `NEURAL PROCESS IN PROGRESS // ${stage}`;
+
+  return (
+    <div
+      className="raone-root"
+      onMouseMove={(e) => {
+        const nx = (e.clientX / window.innerWidth) * 2 - 1;
+        const ny = (e.clientY / window.innerHeight) * 2 - 1;
+        mouseRef.current = { x: nx, y: ny };
+      }}
+    >
+      <style>{CSS_THEME}</style>
+
+      {/* Top Header */}
+      <header className="raone-header">
+        <div className="brand-block">
+          <div className="brand-title">
+            RA<span className="brand-diamond">◆</span>ONE
+          </div>
+          <div className="brand-sub">NEURAL INTELLIGENCE DIVISION</div>
+        </div>
+
+        <div className="header-right">
+          <span className="terminal-label">TELEMETRIC NEURAL NETWORK TERMINAL</span>
+          <span className="red-slashes">///</span>
+        </div>
+      </header>
+
+      {/* Main 4-Column HUD Grid */}
+      <main className="raone-grid">
+        {/* Left Navigation Rail */}
+        <aside className="nav-rail">
+          {NAV_ITEMS.map((item) => {
+            const active = activeNav === item;
+            return (
+              <button
+                key={item}
+                className={`nav-item ${active ? "active" : ""}`}
+                onClick={() => {
+                  setActiveNav(item);
+                  if (item === "LOGS") setShowCodeDrawer((v) => !v);
+                }}
+              >
+                {active && <span className="nav-chevron">›</span>}
+                <span>{item}</span>
+              </button>
+            );
+          })}
+        </aside>
+
+        {/* Left-Middle Telemetry Cards */}
+        <section className="telemetry-col">
+          {/* Card 1: Neural Activity */}
+          <div className="hud-card">
+            <div className="card-title">NEURAL ACTIVITY</div>
+            <div className="metric-hero">
+              {activityPct.toFixed(1)}
+              <span className="metric-unit">%</span>
+              <span className="metric-tri">▲</span>
+            </div>
+            <canvas ref={waveCanvasRef} width={220} height={54} className="eeg-canvas" />
+            <div className="metric-foot">
+              <span>BPM 84 &nbsp;|&nbsp; TEMP 37.1°C</span>
+              <span>SYNC 99.9%</span>
+            </div>
+          </div>
+
+          {/* Card 2: System Status */}
+          <div className="hud-card">
+            <div className="card-title">SYSTEM STATUS</div>
+            <div className="status-online">
+              <span className="status-dot" /> ONLINE
+            </div>
+            <div className="kv-list">
+              <div>
+                <span>LATENCY</span>
+                <strong>{latencyMs} ms</strong>
+              </div>
+              <div>
+                <span>THROUGHPUT</span>
+                <strong>21.4 Gbps</strong>
+              </div>
+              <div>
+                <span>PACKET LOSS</span>
+                <strong>0.01%</strong>
+              </div>
+            </div>
+          </div>
+
+          {/* Card 3: Neural Flows */}
+          <div className="hud-card">
+            <div className="card-title">NEURAL FLOWS</div>
+            <div className="flows-list">
+              {FLOW_LABELS.map((label, i) => (
+                <div key={label} className="flow-row">
+                  <span>{label}</span>
+                  <svg viewBox="0 0 110 18" className="flow-svg">
+                    <path
+                      d={`M0,9 Q14,${i % 2 === 0 ? 2 : 16} 28,9 T56,9 T84,9 T110,9`}
+                      className="flow-path"
+                      style={{ animationDelay: `${i * 0.25}s` }}
+                    />
+                  </svg>
+                </div>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Center Procedural Voxel Face Viewport */}
+        <section className="core-viewport">
+          <div className="corner-glint tl" />
+          <div className="corner-glint tr" />
+          <div className="corner-glint bl" />
+          <div className="corner-glint br" />
+          <canvas ref={faceCanvasRef} className="face-canvas" />
+        </section>
+
+        {/* Right Thought Process + Status Banner + Mini Monitor */}
+        <section className="right-col">
+          <div className="hud-card thought-card">
+            <div className="card-title">THOUGHT PROCESS</div>
+            <div className="thought-list">
+              {thoughts.map((t) => (
+                <div key={t.id} className="thought-line">
+                  <span className="thought-arrow">&gt;</span> {t.text}
+                </div>
+              ))}
+            </div>
+            <div className={`hazard-bar ${isRunning ? "running" : ""}`} />
+          </div>
+
+          <div className="status-banner">
+            <div className="banner-title">{bannerText}</div>
+            <div className="banner-sub">{bannerSub}</div>
+          </div>
+
+          <div className="mini-monitor-row">
+            <div className="hud-card mini-preview-card">
+              <canvas ref={miniCanvasRef} width={180} height={110} className="mini-canvas" />
+            </div>
+            <div className="eq-bars">
+              {[78, 52, 91, 64, 85].map((h, i) => (
+                <div key={i} className="eq-col">
+                  <div
+                    className="eq-fill"
+                    style={{
+                      height: `${isRunning ? Math.min(100, h + ((i * 13) % 20)) : h}%`,
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Live Directive Input Strip */}
+          <form onSubmit={runDirective} className="directive-form">
+            <input
+              type="text"
+              value={directive}
+              onChange={(e) => setDirective(e.target.value)}
+              placeholder="ENTER DIRECTIVE..."
+              className="directive-input"
+            />
+            <button type="submit" disabled={isRunning} className="directive-btn">
+              {isRunning ? "LOOPING" : "EXECUTE"}
+            </button>
+          </form>
+        </section>
+      </main>
+
+      {/* Optional Slide-Up Code/Diff Drawer */}
+      {showCodeDrawer && generatedCode && (
+        <div className="code-drawer">
+          <div className="code-drawer-head">
+            <span>MUTATION / SANDBOX SCRIPT BUFFER</span>
+            <button onClick={() => setShowCodeDrawer(false)}>CLOSE</button>
+          </div>
+          <pre>{generatedCode}</pre>
+        </div>
+      )}
+
+      {/* Footer */}
+      <footer className="raone-footer">
+        <span className="footer-left">
+          DECISION LAYER ACTIVE... // {provider}
+        </span>
+        <span className="footer-mid">SYS.CORE 0xA67C69</span>
+        <span className="red-slashes">///</span>
+      </footer>
+    </div>
+  );
+}
+
+const CSS_THEME = `
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600&family=Rajdhani:wght@500;600;700&display=swap');
+
+  .raone-root {
+    position: relative;
+    min-height: 100vh;
+    background:
+      radial-gradient(circle at 50% 48%, rgba(165, 10, 24, 0.22) 0%, rgba(28, 4, 8, 0.2) 38%, #030305 74%),
+      linear-gradient(180deg, #060609 0%, #020204 100%);
+    color: #e4e8ef;
+    font-family: 'Rajdhani', sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 16px 24px 12px;
+    overflow: hidden;
+    user-select: none;
+  }
+
+  .raone-root::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      0deg,
+      rgba(255, 255, 255, 0.015) 0px,
+      rgba(255, 255, 255, 0.015) 1px,
+      transparent 1px,
+      transparent 3px
+    );
+  }
+
+  .raone-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 1px solid rgba(255, 30, 45, 0.26);
+    padding-bottom: 10px;
+    margin-bottom: 14px;
+    position: relative;
+  }
+
+  .brand-title {
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    line-height: 1;
+    background: linear-gradient(180deg, #f3f5f8 0%, #7d838d 55%, #c5cbd4 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    filter: drop-shadow(0 0 12px rgba(255, 30, 45, 0.25));
+  }
+
+  .brand-diamond {
+    color: #ff1e2d;
+    -webkit-text-fill-color: #ff1e2d;
+    font-size: 16px;
+    margin: 0 4px;
+    vertical-align: middle;
+    text-shadow: 0 0 10px #ff1e2d;
+  }
+
+  .brand-sub {
+    font-size: 10px;
+    letter-spacing: 0.26em;
+    color: #7c8490;
+    margin-top: 3px;
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 6px;
+  }
+
+  .terminal-label {
+    font-size: 12px;
+    letter-spacing: 0.22em;
+    color: #8f96a3;
+  }
+
+  .red-slashes {
+    color: #ff1e2d;
+    font-weight: 700;
+    letter-spacing: 2px;
+    text-shadow: 0 0 10px rgba(255, 30, 45, 0.9);
+  }
+
+  .raone-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 148px 235px minmax(340px, 1fr) 290px;
+    gap: 16px;
+    align-items: stretch;
+  }
+
+  .nav-rail {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 14px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    padding-left: 10px;
+  }
+
+  .nav-item {
+    background: transparent;
+    border: none;
+    color: #6b7280;
+    text-align: left;
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.16em;
+    padding: 8px 10px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    transition: color 0.2s ease;
+  }
+
+  .nav-item:hover {
+    color: #d4d8df;
+  }
+
+  .nav-item.active {
+    color: #ff2636;
+    background: linear-gradient(90deg, rgba(255, 30, 45, 0.18), transparent);
+    text-shadow: 0 0 8px rgba(255, 30, 45, 0.65);
+  }
+
+  .nav-item.active::before {
+    content: '';
+    position: absolute;
+    left: -11px;
+    top: 2px;
+    bottom: 2px;
+    width: 3px;
+    background: #ff1e2d;
+    box-shadow: 0 0 12px #ff1e2d;
+  }
+
+  .telemetry-col,
+  .right-col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    justify-content: center;
+  }
+
+  .hud-card {
+    background: rgba(9, 10, 14, 0.72);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    box-shadow:
+      inset 0 0 22px rgba(255, 20, 38, 0.08),
+      0 0 18px rgba(0, 0, 0, 0.65);
+    padding: 12px 14px;
+    position: relative;
+    clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  }
+
+  .hud-card::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 16px;
+    right: 16px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), rgba(255, 30, 45, 0.55), transparent);
+  }
+
+  .card-title {
+    font-size: 11px;
+    letter-spacing: 0.2em;
+    color: #a1a8b3;
+    margin-bottom: 8px;
+  }
+
+  .metric-hero {
+    font-size: 32px;
+    font-weight: 600;
+    line-height: 1;
+    color: #eef2f7;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+  }
+
+  .metric-unit {
+    font-size: 18px;
+    color: #9ca3af;
+  }
+
+  .metric-tri {
+    font-size: 11px;
+    color: #ff1e2d;
+    text-shadow: 0 0 8px #ff1e2d;
+    margin-left: 4px;
+  }
+
+  .eeg-canvas {
+    width: 100%;
+    height: 54px;
+    display: block;
+    margin: 6px 0;
+  }
+
+  .metric-foot {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    color: #b4bcc8;
+  }
+
+  .status-online {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    color: #ff2a38;
+    margin-bottom: 10px;
+  }
+
+  .status-dot {
+    width: 9px;
+    height: 9px;
+    border-radius: 50%;
+    background: #ff1e2d;
+    box-shadow: 0 0 10px #ff1e2d;
+  }
+
+  .kv-list {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+  }
+
+  .kv-list > div {
+    display: flex;
+    justify-content: space-between;
+    color: #7c8490;
+  }
+
+  .kv-list strong {
+    color: #d6dce4;
+    font-weight: 500;
+  }
+
+  .flows-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .flow-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    color: #8f96a3;
+  }
+
+  .flow-svg {
+    width: 112px;
+    height: 16px;
+  }
+
+  .flow-path {
+    fill: none;
+    stroke: #ff1e2d;
+    stroke-width: 1.3;
+    filter: drop-shadow(0 0 4px rgba(255, 30, 45, 0.8));
+    animation: wavePulse 2.4s ease-in-out infinite;
+  }
+
+  @keyframes wavePulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 1; }
+  }
+
+  .core-viewport {
+    position: relative;
+    border: 1px solid rgba(255, 30, 45, 0.24);
+    background: rgba(5, 5, 8, 0.55);
+    clip-path: polygon(26px 0, calc(100% - 26px) 0, 100% 26px, 100% calc(100% - 26px), calc(100% - 26px) 100%, 26px 100%, 0 calc(100% - 26px), 0 26px);
+    overflow: hidden;
+    min-height: 460px;
+  }
+
+  .face-canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .corner-glint {
+    position: absolute;
+    width: 34px;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, #ffffff, #ff1e2d, transparent);
+    opacity: 0.7;
+    pointer-events: none;
+  }
+  .corner-glint.tl { top: 0; left: 26px; }
+  .corner-glint.tr { top: 0; right: 26px; }
+  .corner-glint.bl { bottom: 0; left: 26px; }
+  .corner-glint.br { bottom: 0; right: 26px; }
+
+  .thought-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-height: 92px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: #9ba3af;
+  }
+
+  .thought-line {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .thought-arrow {
+    color: #ff2636;
+    margin-right: 4px;
+  }
+
+  .hazard-bar {
+    height: 8px;
+    margin-top: 12px;
+    border: 1px solid rgba(255, 30, 45, 0.45);
+    background: repeating-linear-gradient(
+      -55deg,
+      rgba(255, 28, 44, 0.85),
+      rgba(255, 28, 44, 0.85) 6px,
+      rgba(20, 4, 7, 0.9) 6px,
+      rgba(20, 4, 7, 0.9) 12px
+    );
+    background-size: 200% 100%;
+    box-shadow: 0 0 12px rgba(255, 30, 45, 0.4);
+  }
+
+  .hazard-bar.running {
+    animation: hazardSlide 1.2s linear infinite;
+  }
+
+  @keyframes hazardSlide {
+    from { background-position: 0 0; }
+    to { background-position: 34px 0; }
+  }
+
+  .status-banner {
+    background: linear-gradient(90deg, rgba(255, 22, 38, 0.14), rgba(10, 10, 14, 0.8));
+    border: 1px solid rgba(255, 30, 45, 0.35);
+    padding: 16px 14px;
+    clip-path: polygon(16px 0, 100% 0, 100% 100%, 0 100%, 0 16px);
+  }
+
+  .banner-title {
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.24em;
+    color: #ff2b3a;
+    text-shadow: 0 0 12px rgba(255, 30, 45, 0.75);
+  }
+
+  .banner-sub {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.14em;
+    color: #8e96a3;
+    margin-top: 6px;
+  }
+
+  .mini-monitor-row {
+    display: grid;
+    grid-template-columns: 1fr 48px;
+    gap: 10px;
+    align-items: stretch;
+  }
+
+  .mini-preview-card {
+    padding: 4px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .mini-canvas {
+    width: 100%;
+    height: 92px;
+    opacity: 0.85;
+  }
+
+  .eq-bars {
+    display: flex;
+    gap: 4px;
+    align-items: flex-end;
+    padding: 6px 4px;
+    background: rgba(9, 10, 14, 0.72);
+    border: 1px solid rgba(255, 30, 45, 0.22);
+  }
+
+  .eq-col {
+    flex: 1;
+    height: 100%;
+    display: flex;
+    align-items: flex-end;
+    background: rgba(255, 30, 45, 0.08);
+  }
+
+  .eq-fill {
+    width: 100%;
+    background: linear-gradient(180deg, #ff3a48, #8a0814);
+    box-shadow: 0 0 8px rgba(255, 30, 45, 0.7);
+    transition: height 0.3s ease;
+  }
+
+  .directive-form {
+    display: flex;
+    gap: 8px;
+  }
+
+  .directive-input {
+    flex: 1;
+    background: rgba(8, 9, 13, 0.88);
+    border: 1px solid rgba(255, 30, 45, 0.35);
+    color: #e5e9f0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    padding: 9px 10px;
+    outline: none;
+  }
+
+  .directive-input:focus {
+    border-color: #ff2636;
+    box-shadow: 0 0 12px rgba(255, 30, 45, 0.3);
+  }
+
+  .directive-btn {
+    background: rgba(255, 24, 42, 0.2);
+    border: 1px solid #ff2636;
+    color: #ff3a48;
+    font-family: 'Rajdhani', sans-serif;
+    font-weight: 700;
+    letter-spacing: 0.16em;
+    padding: 0 14px;
+    cursor: pointer;
+  }
+
+  .directive-btn:hover:not(:disabled) {
+    background: #ff1e2d;
+    color: #050507;
+    box-shadow: 0 0 14px rgba(255, 30, 45, 0.8);
+  }
+
+  .code-drawer {
+    position: fixed;
+    right: 24px;
+    bottom: 44px;
+    width: 520px;
+    max-height: 260px;
+    background: rgba(6, 7, 10, 0.96);
+    border: 1px solid rgba(255, 30, 45, 0.45);
+    padding: 10px 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    overflow: auto;
+    z-index: 30;
+  }
+
+  .code-drawer-head {
+    display: flex;
+    justify-content: space-between;
+    color: #ff2b3a;
+    margin-bottom: 8px;
+  }
+
+  .code-drawer-head button {
+    background: transparent;
+    border: 1px solid rgba(255, 30, 45, 0.4);
+    color: #e5e9f0;
+    cursor: pointer;
+    font-size: 10px;
+    padding: 2px 6px;
+  }
+
+  .raone-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid rgba(255, 30, 45, 0.22);
+    padding-top: 8px;
+    margin-top: 12px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px;
+    letter-spacing: 0.16em;
+  }
+
+  .footer-left {
+    color: #a8202b;
+  }
+
+  .footer-mid {
+    color: #4b5260;
+  }
+
+  @media (max-width: 1120px) {
+    .raone-grid {
+      grid-template-columns: 1fr;
+    }
+    .nav-rail {
+      flex-direction: row;
+      flex-wrap: wrap;
+      border-left: none;
+    }
+  }
+`;
